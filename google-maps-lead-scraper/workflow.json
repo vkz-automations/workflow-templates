@@ -1,0 +1,1099 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "tg-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "position": [
+        -2320,
+        752
+      ],
+      "typeVersion": 1.2,
+      "webhookId": "telegram-webhook-v3",
+      "credentials": {
+        "telegramApi": {
+          "id": "pALi1KMjfLC968Ex",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simple format: \"restaurants in London, 20\"\nconst msg = $input.first().json.message.text;\nconst parts = msg.split(',').map(p => p.trim());\n\nconst query = parts[0] || 'restaurants in London';\nconst limit = parseInt(parts[1]) || 10;\n\n// Build Google Maps URL from the query — encode it properly in JS\n// This bypasses Apify's IP-based geolocation completely\nconst encodedQuery = encodeURIComponent(query);\nconst mapsUrl = `https://www.google.com/maps/search/${encodedQuery}`;\n\nreturn [{ json: { sector: query, limit, mapsUrl, startTime: new Date().toISOString() } }];"
+      },
+      "id": "extract-input",
+      "name": "Extract Input Data",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -2096,
+        752
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "=🔍 Starting scrape for: {{ $('Extract Input Data').first().json.sector }}\n📊 Limit: {{ $('Extract Input Data').first().json.limit }} results\n\nI'll notify you when done.",
+        "additionalFields": {}
+      },
+      "id": "send-start",
+      "name": "Send Start Notification",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        -1872,
+        560
+      ],
+      "typeVersion": 1.2,
+      "webhookId": "tg-start-v3",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "telegramApi": {
+          "id": "pALi1KMjfLC968Ex",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "Run actor and get dataset",
+        "actorId": {
+          "__rl": true,
+          "value": "nwua9Gu5YrADL7ZDj",
+          "mode": "id"
+        },
+        "customBody": "={\n  \"startUrls\": [{\"url\": \"{{ $('Extract Input Data').first().json.mapsUrl }}\"}],\n  \"maxCrawledPlacesPerSearch\": {{ $('Extract Input Data').first().json.limit }},\n  \"language\": \"en\",\n  \"maxImages\": 0,\n  \"skipClosedPlaces\": true\n}",
+        "timeout": 300
+      },
+      "id": "run-scraper",
+      "name": "Run Google Maps Scraper",
+      "type": "@apify/n8n-nodes-apify.apify",
+      "position": [
+        -1872,
+        752
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "apifyApi": {
+          "id": "wCjX0Y25KdnhK3Qc",
+          "name": "Apify account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "title",
+        "options": {}
+      },
+      "id": "remove-dupes",
+      "name": "Remove Duplicates",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "position": [
+        -1648,
+        752
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-website",
+              "leftValue": "={{ $json.website }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-website",
+      "name": "Filter: Has Website",
+      "type": "n8n-nodes-base.filter",
+      "position": [
+        -1424,
+        752
+      ],
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1YybpUZQuj6c4FdiSXajxCFF03KaCtjqUvLxiIcUbvi0/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1YybpUZQuj6c4FdiSXajxCFF03KaCtjqUvLxiIcUbvi0/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "get-existing",
+      "name": "Get Existing Contacts",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        -1424,
+        944
+      ],
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "j6VSP4lMzpkXxGlk",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge node gives us both Apify leads AND existing Sheets contacts in one list.\n// Apify items have 'title' (lowercase). Sheets rows have 'Title' (uppercase column header).\nconst allItems = $input.all();\n\nconst apifyItems  = allItems.filter(item => item.json.title  !== undefined);\nconst sheetsItems = allItems.filter(item => item.json['Title'] !== undefined);\n\n// Build a set of names already in the sheet (lowercased for comparison)\nconst existingTitles = new Set(\n  sheetsItems\n    .map(item => (item.json['Title'] || '').toLowerCase().trim())\n    .filter(t => t !== '')\n);\n\n// Keep only Apify leads that aren't already in the sheet\nconst newLeads = apifyItems.filter(item => {\n  const title = (item.json.title || '').toLowerCase().trim();\n  return !existingTitles.has(title);\n});\n\nreturn newLeads.length > 0 ? newLeads : [];"
+      },
+      "id": "filter-not-contacted",
+      "name": "Filter: Not Already Contacted",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -976,
+        848
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop-items",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        -752,
+        848
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-5.2",
+          "mode": "list",
+          "cachedResultName": "GPT-5.2"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are an AI that analyses Google Maps business data. Output only valid JSON with exactly two fields: companySummary and painPoints. Write in English, professional tone.",
+              "role": "system"
+            },
+            {
+              "content": "=Analyse this business and output JSON.\n\nCompany: {{ $json.title }}\nCategory: {{ $json.categoryName }}\nAddress: {{ $json.address }}, {{ $json.city }}, {{ $json.countryCode }}\nPhone: {{ $json.phoneUnformatted || 'Not available' }}\nRating: {{ $json.totalScore || 'Not rated' }} ({{ $json.reviewsCount || 0 }} reviews)\n\nRules:\n- companySummary: one professional paragraph about the business\n- painPoints: one sentence describing the most likely repetitive manual tasks this business struggles with (e.g. answering booking calls, handling enquiries, following up leads)\n\nOutput JSON: { \"companySummary\": \"...\", \"painPoints\": \"...\" }"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "id": "ai-summary",
+      "name": "AI Company Summary",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [
+        -528,
+        944
+      ],
+      "typeVersion": 1.8,
+      "credentials": {
+        "openAiApi": {
+          "id": "ihjV4Slqxe6yoiMO",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1YybpUZQuj6c4FdiSXajxCFF03KaCtjqUvLxiIcUbvi0/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1YybpUZQuj6c4FdiSXajxCFF03KaCtjqUvLxiIcUbvi0/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Title": "={{ $json.title }}",
+            "Category": "={{ $json.categoryName }}",
+            "Address": "={{ $json.address }}",
+            "City": "={{ $json.city }}",
+            "Country": "={{ $json.countryCode }}",
+            "Phone": "={{ $json.phoneUnformatted }}",
+            "Website": "={{ $json.website }}",
+            "Rating": "={{ $json.totalScore }}",
+            "Reviews": "={{ $json.reviewsCount }}",
+            "Maps URL": "={{ $json.url }}",
+            "Scraped At": "={{ $now.toFormat('dd/MM/yyyy HH:mm') }}",
+            "Company Summary": "={{ $json.companySummary }}",
+            "Email": "",
+            "Email Sent": "No",
+            "Status": "New",
+            "Pain Points": "={{ $json.painPoints }}",
+            "Date Contacted": ""
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "save-sheets",
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        48,
+        944
+      ],
+      "typeVersion": 4.5,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "j6VSP4lMzpkXxGlk",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "url",
+              "name": "websiteUrl",
+              "type": "string",
+              "value": "={{ $json.Website || $json.website || '' }}"
+            },
+            {
+              "id": "title",
+              "name": "businessTitle",
+              "type": "string",
+              "value": "={{ $json.Title || $json.title || '' }}"
+            },
+            {
+              "id": "cat",
+              "name": "businessCategory",
+              "type": "string",
+              "value": "={{ $json.Category || $json.categoryName || '' }}"
+            },
+            {
+              "id": "city",
+              "name": "businessCity",
+              "type": "string",
+              "value": "={{ $json.City || $json.city || '' }}"
+            },
+            {
+              "id": "summary",
+              "name": "companySummary",
+              "type": "string",
+              "value": "={{ $json['Company Summary'] || $json.companySummary || '' }}"
+            },
+            {
+              "id": "score",
+              "name": "totalScore",
+              "type": "string",
+              "value": "={{ $json.Rating || $json.totalScore || '' }}"
+            },
+            {
+              "id": "reviews",
+              "name": "reviewsCount",
+              "type": "string",
+              "value": "={{ $json.Reviews || $json.reviewsCount || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-url",
+      "name": "Extract Website URL",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        272,
+        944
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.websiteUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.5"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 5
+            }
+          },
+          "response": {
+            "response": {}
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "fetch-html",
+      "name": "Fetch Website HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        496,
+        944
+      ],
+      "typeVersion": 4.2,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = ($json.data || $json.body || '').toString();\n\n// Grab business fields from Extract Website URL — pairing is reliable here (same chain, no branches yet)\nconst biz = $('Extract Website URL').item.json;\n\nfunction extractEmail(html) {\n  const mailtoMatch = html.match(/mailto:([a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,})/i);\n  if (mailtoMatch) return mailtoMatch[1].toLowerCase();\n\n  const allEmails = [...html.matchAll(/\\b([a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,})\\b/g)]\n    .map(m => m[1].toLowerCase());\n\n  const skipPatterns = ['example.com', 'sentry.io', 'w3.org', 'schema.org',\n                        'cloudflare', 'jquery', 'wixpress', 'squarespace',\n                        '.png', '.jpg', '.gif', '.svg', '.woff'];\n\n  const valid = allEmails.filter(e =>\n    !skipPatterns.some(p => e.includes(p)) && e.length < 80\n  );\n\n  if (valid.length > 0) {\n    const preferred = valid.find(e => /^(info|contact|hello|enquiries|bookings|reservations)@/.test(e));\n    return preferred || valid[0];\n  }\n  return null;\n}\n\nreturn [{ json: {\n  email: extractEmail(html),\n  websiteHtml: html.substring(0, 4000),\n  businessTitle: biz.businessTitle || '',\n  businessCategory: biz.businessCategory || '',\n  businessCity: biz.businessCity || '',\n  totalScore: biz.totalScore || '',\n  reviewsCount: biz.reviewsCount || '',\n  companySummary: biz.companySummary || '',\n  websiteUrl: biz.websiteUrl || ''\n}}];"
+      },
+      "id": "extract-email",
+      "name": "Extract Email from HTML",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        720,
+        800
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "not-null",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "is-email",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "^[^@]+@[^@]+\\.[^@]+$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-email",
+      "name": "Filter: Has Valid Email",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        1616,
+        736
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.2",
+          "cachedResultName": "GPT-5.2"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You write short cold outreach emails for Pankaj, an AI automation consultant. His service: he builds AI-powered automations that handle bookings, customer enquiries, and lead follow-up automatically — so business owners stop doing it manually. Emails must sound human, be under 120 words, reference something specific about the business, and connect their specific pain to AI automation as the fix. No buzzwords. No corporate tone. Output valid JSON with fields: subject, body, painPoints.",
+              "role": "system"
+            },
+            {
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "id": "gen-email",
+      "name": "Generate Personalised Cold Email",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [
+        2064,
+        656
+      ],
+      "typeVersion": 1.8,
+      "credentials": {
+        "openAiApi": {
+          "id": "ihjV4Slqxe6yoiMO",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "=thebeetrootcompany@gmail.com",
+        "subject": "={{ $json.message.content.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.message.content.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-email",
+      "name": "Send Cold Email via Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        2416,
+        656
+      ],
+      "typeVersion": 2.1,
+      "webhookId": "a5b4d8dd-fca4-469e-a225-1c678f9bc8ce",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "yDaGThTJYQFYTnxe",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1YybpUZQuj6c4FdiSXajxCFF03KaCtjqUvLxiIcUbvi0/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1YybpUZQuj6c4FdiSXajxCFF03KaCtjqUvLxiIcUbvi0/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Title": "={{ $('Extract Website URL').item.json.businessTitle }}",
+            "Email": "={{ $('Extract Email from HTML').item.json.email }}",
+            "Email Sent": "Yes",
+            "Status": "Contacted",
+            "Date Contacted": "={{ $now.toFormat('dd/MM/yyyy HH:mm') }}",
+            "Pain Points": "={{ $('Generate Personalised Cold Email').item.json.message.content.painPoints }}"
+          },
+          "matchingColumns": [
+            "Title"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "update-email",
+      "name": "Update Lead in Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        2640,
+        656
+      ],
+      "typeVersion": 4.5,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "j6VSP4lMzpkXxGlk",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "id": "rate-limit",
+      "name": "Pause (Rate Limit)",
+      "type": "n8n-nodes-base.wait",
+      "position": [
+        2864,
+        1024
+      ],
+      "typeVersion": 1.1,
+      "webhookId": "rate-limit-v3"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "=✅ Scrape complete!\n\nAll leads saved to Google Sheets. Cold emails sent where email addresses were found.",
+        "additionalFields": {}
+      },
+      "id": "send-done",
+      "name": "Send Done Notification",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        -176,
+        752
+      ],
+      "typeVersion": 1.2,
+      "webhookId": "tg-done-v3",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "telegramApi": {
+          "id": "pALi1KMjfLC968Ex",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "err",
+              "name": "fetchError",
+              "type": "string",
+              "value": "Website could not be fetched"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "handle-error",
+      "name": "Handle Fetch Error",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        1392,
+        1024
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "content": "## Google Maps Lead Scraper V3\n\n**Telegram format:**\n`sector ; limit ; google_maps_url`\n\n**Example:**\n`restaurants ; 10 ; https://www.google.com/maps/search/restaurants+london`\n\n**V3 improvements over original:**\n✅ Skips businesses already in your sheet\n✅ Uses stable Apify node package\n✅ 5 min scrape timeout\n✅ jsonOutput on AI nodes (no parsing bugs)",
+        "height": 400,
+        "width": 560
+      },
+      "id": "overview-note",
+      "name": "Workflow Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2096,
+        -32
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine business data from Loop Over Items with AI analysis output\nconst business = $('Loop Over Items').item.json;\nconst ai = $json.message?.content || $json;\n\nreturn [{\n  json: {\n    title:            business.title            || '',\n    categoryName:     business.categoryName     || '',\n    address:          business.address          || '',\n    city:             business.city             || '',\n    countryCode:      business.countryCode      || '',\n    phoneUnformatted: business.phoneUnformatted || '',\n    website:          business.website          || '',\n    totalScore:       business.totalScore       || '',\n    reviewsCount:     business.reviewsCount     || '',\n    url:              business.url              || '',\n    companySummary:   ai.companySummary || '',\n    painPoints:       ai.painPoints     || '',\n  }\n}];"
+      },
+      "id": "merge-lead-data",
+      "name": "Merge Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -176,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The loop's 'done' output passes all processed items — we only want ONE notification\nreturn [{ json: { done: true } }];"
+      },
+      "id": "collapse-done",
+      "name": "Collapse to One Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        752
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "merge-leads-contacts",
+      "name": "Merge Leads and Contacts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -1200,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fetch the /contact page while keeping ALL business fields in $json.\n// Using a Code node instead of HTTP Request prevents data wipeout.\n\nconst websiteUrl = ($json.websiteUrl || '').replace(/\\/+$/, '');\nconst contactUrl = websiteUrl + '/contact';\n\n// Preserve everything we already have\nconst preserved = {\n  email:            $json.email            || null,\n  websiteHtml:      $json.websiteHtml      || '',\n  businessTitle:    $json.businessTitle    || '',\n  businessCategory: $json.businessCategory || '',\n  businessCity:     $json.businessCity     || '',\n  totalScore:       $json.totalScore       || '',\n  reviewsCount:     $json.reviewsCount     || '',\n  companySummary:   $json.companySummary   || '',\n  websiteUrl:       $json.websiteUrl       || ''\n};\n\nif (!websiteUrl) {\n  return [{ json: { ...preserved, contactHtml: '' } }];\n}\n\nlet contactHtml = '';\ntry {\n  const response = await $helpers.httpRequest({\n    method: 'GET',\n    url: contactUrl,\n    returnFullResponse: false,\n    ignoreHttpStatusErrors: true\n  });\n  contactHtml = typeof response === 'string' ? response\n              : (response.body || response.data || '');\n} catch(e) {\n  contactHtml = '';\n}\n\nreturn [{ json: { ...preserved, contactHtml } }];"
+      },
+      "id": "fetch-contact-page",
+      "name": "Fetch Contact Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract email from contact page HTML.\n// All business fields already in $json — no cross-node refs needed.\n\nconst html = ($json.contactHtml || '').toString();\n\nfunction extractEmail(html) {\n  const mailtoMatch = html.match(/mailto:([a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,})/i);\n  if (mailtoMatch) return mailtoMatch[1].toLowerCase();\n\n  const allEmails = [...html.matchAll(/\\b([a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,})\\b/g)]\n    .map(m => m[1].toLowerCase());\n\n  const skipPatterns = ['example.com', 'sentry.io', 'w3.org', 'schema.org',\n                        'cloudflare', 'jquery', 'wixpress', 'squarespace',\n                        '.png', '.jpg', '.gif', '.svg', '.woff'];\n\n  const valid = allEmails.filter(e =>\n    !skipPatterns.some(p => e.includes(p)) && e.length < 80\n  );\n\n  if (valid.length > 0) {\n    const preferred = valid.find(e => /^(info|contact|hello|enquiries|bookings|reservations)@/.test(e));\n    return preferred || valid[0];\n  }\n  return null;\n}\n\n// Use contact page HTML as websiteHtml if homepage was thin\nconst contactHtml = html.substring(0, 4000);\nconst websiteHtml = ($json.websiteHtml && $json.websiteHtml.length > 200)\n                    ? $json.websiteHtml\n                    : contactHtml;\n\n// Pass ALL fields forward — nothing relies on cross-node references\nreturn [{ json: {\n  email:            extractEmail(html),\n  websiteHtml,\n  contactHtml:      contactHtml,\n  businessTitle:    $json.businessTitle    || '',\n  businessCategory: $json.businessCategory || '',\n  businessCity:     $json.businessCity     || '',\n  totalScore:       $json.totalScore       || '',\n  reviewsCount:     $json.reviewsCount     || '',\n  companySummary:   $json.companySummary   || '',\n  websiteUrl:       $json.websiteUrl       || ''\n}}];"
+      },
+      "id": "extract-email-contact",
+      "name": "Extract Email (Contact)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-email",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-email-found",
+      "name": "Email Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        944,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build full prompt string here — OpenAI node gets one clean expression, no multi-expression issues.\n\nlet biz = {};\ntry { biz = $('Extract Website URL').item.json || {}; } catch(e) {}\n\nconst businessTitle    = $json.businessTitle    || biz.businessTitle    || '';\nconst businessCategory = $json.businessCategory || biz.businessCategory || '';\nconst businessCity     = $json.businessCity     || biz.businessCity     || '';\nconst totalScore       = $json.totalScore       || biz.totalScore       || '';\nconst reviewsCount     = $json.reviewsCount     || biz.reviewsCount     || '';\nconst companySummary   = $json.companySummary   || biz.companySummary   || '';\nconst websiteHtml      = $json.websiteHtml      || '';\n\nconst prompt = `Write a cold email to this business from Pankaj.\n\nBusiness: ${businessTitle}\nType: ${businessCategory}\nCity: ${businessCity}\nRating: ${totalScore}\nReviews: ${reviewsCount}\nWebsite content:\n${websiteHtml}\n\nEmail structure:\n0. Greeting: Hi ${businessTitle},\n1. One specific observation — pick from this priority order:\n   a) Something SPECIFIC from the website content (service, niche, how they handle enquiries, what's missing)\n   b) If website is thin — use rating/review count: e.g. \"${reviewsCount} reviews on Google but no automated way to follow up when you're busy\"\n   c) If no useful data — use business type + city for a plausible pain point\n   NEVER write a generic line like \"your homepage doesn't have a booking flow\" without tying it to something specific\n2. One line: AI automation solves exactly that — automatically\n3. Soft CTA: open to a 15-minute chat?\n4. Sign off: Best regards, Pankaj\n\nHard rules:\n- Never start with 'I'\n- Never say: 'I hope', 'reach out', 'leverage', 'seamlessly', 'revolutionize', 'game-changer'\n- Under 100 words\n- Output only the final email text — no {{ }}, no template variables\n\npainPoints: one sharp sentence about the specific gap tied to this business.\n\nOutput JSON: { \"subject\": \"...\", \"body\": \"...\", \"painPoints\": \"...\" }`;\n\nreturn [{ json: {\n  email: $json.email || '',\n  websiteHtml,\n  businessTitle,\n  businessCategory,\n  businessCity,\n  totalScore,\n  reviewsCount,\n  companySummary,\n  prompt\n}}];"
+      },
+      "id": "prepare-email-data",
+      "name": "Prepare Email Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        656
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input Data": {
+      "main": [
+        [
+          {
+            "node": "Send Start Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Run Google Maps Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Existing Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Google Maps Scraper": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Filter: Has Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Has Website": {
+      "main": [
+        [
+          {
+            "node": "Merge Leads and Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Contacts": {
+      "main": [
+        [
+          {
+            "node": "Merge Leads and Contacts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Filter: Not Already Contacted": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Collapse to One Item",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Company Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Company Summary": {
+      "main": [
+        [
+          {
+            "node": "Merge Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Extract Website URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Website URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch Website HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Website HTML": {
+      "main": [
+        [
+          {
+            "node": "Extract Email from HTML",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Fetch Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Email from HTML": {
+      "main": [
+        [
+          {
+            "node": "Email Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Has Valid Email": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pause (Rate Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Personalised Cold Email": {
+      "main": [
+        [
+          {
+            "node": "Send Cold Email via Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Cold Email via Gmail": {
+      "main": [
+        [
+          {
+            "node": "Update Lead in Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead in Sheets": {
+      "main": [
+        [
+          {
+            "node": "Pause (Rate Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pause (Rate Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Fetch Error": {
+      "main": [
+        [
+          {
+            "node": "Pause (Rate Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collapse to One Item": {
+      "main": [
+        [
+          {
+            "node": "Send Done Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Leads and Contacts": {
+      "main": [
+        [
+          {
+            "node": "Filter: Not Already Contacted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Contact Page": {
+      "main": [
+        [
+          {
+            "node": "Extract Email (Contact)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Fetch Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Email (Contact)": {
+      "main": [
+        [
+          {
+            "node": "Filter: Has Valid Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Found?": {
+      "main": [
+        [
+          {
+            "node": "Filter: Has Valid Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Contact Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email Data": {
+      "main": [
+        [
+          {
+            "node": "Generate Personalised Cold Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Telegram Trigger": [
+      {
+        "update_id": 46302508,
+        "message": {
+          "message_id": 184,
+          "from": {
+            "id": 1899655732,
+            "is_bot": false,
+            "first_name": "Pankaj",
+            "username": "kryptus",
+            "language_code": "en"
+          },
+          "chat": {
+            "id": 1899655732,
+            "first_name": "Pankaj",
+            "username": "kryptus",
+            "type": "private"
+          },
+          "date": 1772778134,
+          "text": "restaurants in Miami,  5"
+        }
+      }
+    ]
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e0648ee3001663e5572b831c1c93558d24d1ae381d080a2c3cf9b3af0b392d52"
+  }
+}

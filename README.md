@@ -12,6 +12,7 @@ Each folder contains:
 
 | Workflow | Description | Video |
 |---|---|---|
+| [Google Maps Lead Scraper](./google-maps-lead-scraper/) | Scrape businesses from Google Maps, find emails, generate personalised cold emails, and log everything to Google Sheets. | [Watch on YouTube](https://www.youtube.com/@pankajpahujaofficial) |
 | [Agentic Content Team](./agentic-content-team/) | 3-agent AI pipeline (Researcher → Writer → Critic) with Telegram approval gate. Posts to LinkedIn automatically. | [Watch on YouTube](https://www.youtube.com/@pankajpahujaofficial) |
 
 ---
