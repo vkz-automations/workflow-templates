@@ -12,10 +12,10 @@ Each folder contains:
 
 | Workflow | Description | Video |
 |---|---|---|
-| [AI WhatsApp Receptionist](./ai-whatsapp-receptionist/) | AI receptionist (Alex) that handles WhatsApp bookings, modifications, and cancellations for restaurants. Persistent memory via Supabase. | [Watch on YouTube](https://www.youtube.com/@pankajpahujaofficial) |
-| [YouTube Content Multiplier](./youtube-content-multiplier/) | Send a YouTube URL to Telegram → get a LinkedIn post + 5-tweet X thread saved to Google Docs automatically. | [Watch on YouTube](https://www.youtube.com/@pankajpahujaofficial) |
-| [Lead Qualification Agent](./lead-qualification-agent/) | Prospect fills a form → AI scrapes their website, scores the lead, and routes them. Qualified leads go to your team, unqualified get a rejection email. | [Watch on YouTube](https://www.youtube.com/@pankajpahujaofficial) |
-| [Google Maps Lead Scraper](./google-maps-lead-scraper/) | Scrape businesses from Google Maps, find emails, generate personalised cold emails, and log everything to Google Sheets. | [Watch on YouTube](https://www.youtube.com/@pankajpahujaofficial) |
+| [AI WhatsApp Receptionist](./ai-whatsapp-receptionist/) | AI receptionist (Alex) that handles WhatsApp bookings, modifications, and cancellations for restaurants. Persistent memory via Supabase. | [Watch on YouTube](https://youtu.be/CBBMLYkmAzM) |
+| [YouTube Content Multiplier](./youtube-content-multiplier/) | Send a YouTube URL to Telegram → get a LinkedIn post + 5-tweet X thread saved to Google Docs automatically. | [Watch on YouTube](https://youtu.be/9NBy7kdSZ2Q) |
+| [Lead Qualification Agent](./lead-qualification-agent/) | Prospect fills a form → AI scrapes their website, scores the lead, and routes them. Qualified leads go to your team, unqualified get a rejection email. | [Watch on YouTube](https://youtu.be/lNLYcaeKr1U) |
+| [Google Maps Lead Scraper](./google-maps-lead-scraper/) | Scrape businesses from Google Maps, find emails, generate personalised cold emails, and log everything to Google Sheets. | [Watch on YouTube](https://youtu.be/VVcRF10tKKk) |
 | [Agentic Content Team](./agentic-content-team/) | 3-agent AI pipeline (Researcher → Writer → Critic) with Telegram approval gate. Posts to LinkedIn automatically. | [Watch on YouTube](https://www.youtube.com/@pankajpahujaofficial) |
 
 ---
