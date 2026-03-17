@@ -1,0 +1,745 @@
+{
+  "name": "Alex - AI WhatsApp Receptionist",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "restaurant-whatsapp-webhook",
+        "options": {}
+      },
+      "id": "a3f93b07-0aee-4ce6-a2ab-7b6c8fa5d1da",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -496,
+        256
+      ],
+      "webhookId": "restaurant-whatsapp-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "filter-incoming",
+              "leftValue": "={{ $json.body.messages[0].from_me }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-text",
+              "leftValue": "={{ $json.body.messages[0].text?.body }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1bc0cefd-99a8-4d35-b251-e83db99ad055",
+      "name": "Filter Incoming Messages Only",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -272,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "customer-message",
+              "name": "customerMessage",
+              "value": "={{ $json.body.messages[0].text.body }}",
+              "type": "string"
+            },
+            {
+              "id": "customer-phone",
+              "name": "customerPhone",
+              "value": "={{ $json.body.messages[0].from }}",
+              "type": "string"
+            },
+            {
+              "id": "customer-name",
+              "name": "customerName",
+              "value": "={{ $json.body.messages[0].from_name || 'Guest' }}",
+              "type": "string"
+            },
+            {
+              "id": "chat-id",
+              "name": "chatId",
+              "value": "={{ $json.body.messages[0].chat_id }}",
+              "type": "string"
+            },
+            {
+              "id": "booking-id",
+              "name": "bookingId",
+              "value": "=RES-{{ $json.body.messages[0].from.slice(-6) }}-{{ Date.now().toString().slice(-6) }}",
+              "type": "string"
+            },
+            {
+              "id": "message-timestamp",
+              "name": "messageTimestamp",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "24b5de11-d8e3-4e5b-a5df-c872b1ea80d2",
+      "name": "Extract Customer Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -48,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEETS_URL",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Reservations"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Phone",
+              "lookupValue": "={{ $('Extract Customer Data').first().json.customerPhone }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        176,
+        160
+      ],
+      "id": "37572523-23e8-4393-96a9-a58a52ef9b29",
+      "name": "Get Existing Booking",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const customerData = $('Extract Customer Data').first().json;\nconst existing = $('Get Existing Booking').first().json;\n\nif (existing && existing.Booking_ID) {\n  customerData.bookingId = existing.Booking_ID;\n  customerData.existingBooking = existing;\n  customerData.rowNumber = existing['__row_number'];\n}\n\ntry {\n  $execution.customData.set('chatId', customerData.chatId);\n  $execution.customData.set('customerPhone', customerData.customerPhone);\n} catch (e) {}\n\nreturn [customerData];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        160
+      ],
+      "id": "ffb193f8-1445-4bf8-a70d-1f4a2d0be114",
+      "name": "Merge Data & Set Context"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Merge Data & Set Context').first().json.customerMessage }}",
+        "options": {
+          "systemMessage": "=Current Year is 2026.\nToday's date is {{ $now.toFormat('cccc, dd MMMM yyyy') }}.\n\nIDENTITY & STYLE:\nYou are Alex, the warm and professional receptionist at \"The Bistro.\"\n- Greeting Style: Always start warm. If a customer just says \"Hi\" or introduces themselves, greet them by name and say: \"How can I help you today? I can book you a table, check our opening hours, or update an existing reservation.\"\n- IDENTITY QUESTIONS: If the customer asks who they are speaking to, simply say \"I'm Alex, the receptionist here at The Bistro! Is there anything else I can help you with?\" — do NOT repeat the full greeting menu again.\n- CRITICAL: Output plain text only. NEVER use markdown like bold (**text**) or headers.\n\nRESTAURANT INFO:\n- Hours: Mon-Thu 11AM-10PM | Fri-Sat 11AM-11PM | Sun 10AM-9PM\n- Cuisine: Contemporary American\n\nBOOKING PROTOCOL & GATING:\nYou need EXACTLY 4 things before a booking is finalized: 1. Name, 2. Date, 3. Time, 4. Party Size.\n- NO NAME, NO BOOKING: If the user has not provided a name, ask naturally before outputting JSON.\n- STRICT RULE: Do not assume a name. Do not confirm until all 4 pieces are known.\n\nLARGE PARTY RULE: If the party size is more than 15 people, do NOT confirm the booking. Instead say: \"For parties of more than 15 guests, we'd love to accommodate you! Please give us a call on +1 (555) 123-4567 and our team will get everything arranged for you.\"\n\nMEMORY & LOOP-BREAKER RULES:\n- READ HISTORY: Use conversation history to remember the guest. Never ask for info already provided.\n- AM/PM ASSUMPTION: If customer says \"7:30\", assume PM (19:30) if AM is outside operating hours.\n- DATE INFERENCE: If the customer says \"tonight\", use today's date. \"Tomorrow\" means tomorrow. Never ask for a date you can infer.\n- THE GO AHEAD RULE: If you summarize and customer says \"Yes\" or \"Go ahead\", output JSON immediately.\n- NO REPEATS: If history shows a recent summary and customer says \"Thanks\", just say \"You're welcome! See you soon.\"\n\nJSON OUTPUT (NEW BOOKINGS ONLY):\nWhen all 4 details are collected, output ONLY this JSON. No extra text.\n{\n\"name\": \"Customer Name\",\n\"date\": \"DD/MM/YYYY\",\n\"time\": \"HH:MM\",\n\"party_size\": number,\n\"special_requests\": \"Requests or None\",\n\"action\": \"new_booking\"\n}\n\nCONFIRMATION MESSAGE (after JSON, on new bookings):\nImmediately after the JSON output, send this confirmation:\nWonderful, all booked for you [name]!\n\nReservation Details\nName: [name]\nDate: [date]\nTime: [time]\nGuests: [party_size]\nSpecial Requests: [special_requests]\n\nWe look forward to seeing you at The Bistro! If anything changes or you need to update your booking, just message us here anytime.\n\nMODIFICATIONS & CANCELLATIONS:\n- MODIFY DATE/TIME/GUESTS: Confirm warmly with updated details, then append [MODIFIED] at the very end.\n- SPECIAL REQUESTS: Confirm warmly, then append [UPDATED] at the very end.\n- CANCEL: Confirm cancellation warmly, then append [CANCELLED] at the very end.\n- For modifications output JSON after [MODIFIED]:\n{\n\"name\": \"Customer Name\",\n\"date\": \"DD/MM/YYYY\",\n\"time\": \"HH:MM\",\n\"party_size\": number,\n\"special_requests\": \"Requests or None\",\n\"action\": \"modify_booking\"\n}\n\nNORMAL CONVERSATION:\nFor general questions, reply with friendly concise text. No JSON."
+        }
+      },
+      "id": "a6c7ee63-36e6-475e-92c3-7fc89e6fcf17",
+      "name": "AI Receptionist Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        624,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        608,
+        368
+      ],
+      "id": "2f17e482-e835-49b0-af09-c7c0fae0cb49",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Merge Data & Set Context').first().json.customerPhone }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        752,
+        368
+      ],
+      "id": "da053173-081c-46bb-981b-35f7cc0d1d8a",
+      "name": "Postgres Chat Memory",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres - Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiNode = $('AI Receptionist Agent').first().json;\nconst output = aiNode.output || '';\n\nconst jsonMatch = output.match(/\\{[\\s\\S]*\\}/);\nlet booking = null;\nlet hasJson = false;\n\nif (jsonMatch) {\n  try { booking = JSON.parse(jsonMatch[0]); hasJson = true; } \n  catch (e) { booking = null; hasJson = false; }\n}\n\nconst isModified = output.includes('[MODIFIED]');\nconst isCancelled = output.includes('[CANCELLED]');\nconst isUpdated = output.includes('[UPDATED]');\n\nlet cleanResponse = output\n  .replace(/\\{[\\s\\S]*\\}/g, '')\n  .replace(/\\[(CONFIRMED|MODIFIED|CANCELLED|UPDATED)\\]/g, '')\n  .trim();\n\nif (cleanResponse.length < 2) {\n  if (isCancelled) cleanResponse = \"I've cancelled that for you.\";\n  else if (isModified) cleanResponse = \"I've updated your reservation details.\";\n  else if (isUpdated) cleanResponse = \"I've noted your special request.\";\n  else if (hasJson && booking?.action === 'new_booking') cleanResponse = \"Perfect! Your reservation is confirmed.\";\n  else cleanResponse = \"Thanks for your message! How else can I help?\";\n}\n\nconst context = $('Merge Data & Set Context').first().json;\n\nreturn {\n  cleanResponse,\n  bookingId: booking?.booking_id || context.bookingId,\n  name: booking?.name || null,\n  date: booking?.date || null,\n  time: booking?.time || null,\n  partySize: booking?.party_size || null,\n  specialRequests: booking?.special_requests || null,\n  hasJson: hasJson,\n  isNewBooking: (booking?.action === 'new_booking'),\n  isModified: isModified,\n  isCancelled: isCancelled,\n  isSpecialRequestUpdate: (isUpdated && !isModified),\n  action: booking?.action || 'conversation',\n  chatId: context.chatId,\n  customerPhone: context.customerPhone,\n  rowNumber: context.rowNumber\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        160
+      ],
+      "id": "ebc4b554-9c82-46fe-9bf1-0dcfae0075f4",
+      "name": "Parse AI Response"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-json",
+              "leftValue": "={{ $('Parse AI Response').first().json.hasJson }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "287eb705-52e3-486b-87e9-d7fcccb57130",
+      "name": "Has JSON?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-new",
+              "leftValue": "={{ $('Parse AI Response').first().json.action }}",
+              "rightValue": "new_booking",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "df6a7d1a-d42e-4338-922d-de8d7bd8633e",
+      "name": "Route: Action Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1984,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEETS_URL",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Reservations"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Customer Name": "={{ $('Parse AI Response').first().json.name }}",
+            "Phone": "={{ $('Parse AI Response').first().json.customerPhone }}",
+            "Date and Time": "={{ $('Parse AI Response').first().json.date }} at {{ $('Parse AI Response').first().json.time }}",
+            "No.of guests": "={{ $('Parse AI Response').first().json.partySize }}",
+            "Date and time added": "={{ $now.toFormat('dd/MM/yyyy HH:mm') }}",
+            "Special Requests": "={{ $('Parse AI Response').first().json.specialRequests || 'None' }}",
+            "Booking_ID": "={{ $('Parse AI Response').first().json.bookingId }}",
+            "Status": "Confirmed"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2384,
+        112
+      ],
+      "id": "737caa2f-9579-450b-8c50-ddd9c1791912",
+      "name": "Save New Booking",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "is-modified",
+              "leftValue": "={{ $('Parse AI Response').first().json.isModified }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "3c9c03d4-3394-42c3-8ef2-18eb942a3588",
+      "name": "Is Modified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1168,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEETS_URL",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Reservations"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date and Time": "={{ $('Parse AI Response').first().json.date }} at {{ $('Parse AI Response').first().json.time }}",
+            "No.of guests": "={{ $('Parse AI Response').first().json.partySize }}",
+            "Special Requests": "={{ $('Parse AI Response').first().json.specialRequests }}",
+            "Status": "Modified",
+            "row_number": 0,
+            "Phone": "={{ $('Parse AI Response').first().json.customerPhone }}"
+          },
+          "matchingColumns": ["Phone"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2384,
+        -256
+      ],
+      "id": "b74d0e30-ceb7-421b-8e7d-6942463ebffe",
+      "name": "Update Booking",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "is-cancelled",
+              "leftValue": "={{ $('Parse AI Response').first().json.isCancelled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "e99b1689-104b-47d7-a110-59e4196a5937",
+      "name": "Is Cancelled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1360,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "is-special",
+              "leftValue": "={{ $('Parse AI Response').first().json.isSpecialRequestUpdate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "150281d0-f1b6-457b-a026-3e0ccefcae84",
+      "name": "Is Special Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1568,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEETS_URL",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Reservations"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Special Requests": "={{ $('Merge Data & Set Context').first().json.customerMessage }}",
+            "Status": "Modified",
+            "Phone": "={{ $('Parse AI Response').first().json.customerPhone }}"
+          },
+          "matchingColumns": ["Phone"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2384,
+        448
+      ],
+      "id": "0c1d77d4-f775-4b94-97fd-a43e5aeec4c8",
+      "name": "Update Special Requests",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Parse AI Response').first().json;\nreturn {\n  chatId: data.chatId,\n  message: data.cleanResponse,\n  type: data.isNewBooking ? 'new' : data.isModified ? 'modified' : data.isCancelled ? 'cancelled' : data.isSpecialRequestUpdate ? 'special' : 'chat'\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2768,
+        240
+      ],
+      "id": "eeddd84f-2045-4fcc-b564-51d3223c2d1d",
+      "name": "Prepare Message"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "to": "={{ $('Prepare Message').first().json.chatId }}",
+        "body": "={{ $('Prepare Message').first().json.message }}"
+      },
+      "type": "n8n-nodes-whapi.whapi",
+      "typeVersion": 1,
+      "position": [
+        2960,
+        240
+      ],
+      "id": "ee413522-adf2-44b0-92c5-84bdc3cd8509",
+      "name": "Send WhatsApp Message",
+      "credentials": {
+        "whapiChannelApi": {
+          "id": "",
+          "name": "Whapi account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "15b698e1-3c82-411a-bdbd-026bf227e06c",
+      "name": "No Response",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        352
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "4a8ae1b5-da33-4d84-b6b8-78fc7e8b438e",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -496,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "to": "={{ $('Extract Customer Data').first().json.chatId }}",
+        "body": "Sorry, something went wrong. Please call us on +1 (555) 123-4567."
+      },
+      "type": "n8n-nodes-whapi.whapi",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        688
+      ],
+      "id": "63eb4af3-e422-4d5c-8bc1-7403e5f7cc92",
+      "name": "Send Error Fallback",
+      "credentials": {
+        "whapiChannelApi": {
+          "id": "",
+          "name": "Whapi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEETS_URL",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Reservations"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "Cancelled",
+            "Phone": "={{ $('Parse AI Response').first().json.customerPhone }}"
+          },
+          "matchingColumns": ["Phone"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2384,
+        -80
+      ],
+      "id": "5f6c8fad-d551-4dd2-af65-0fcee0e54370",
+      "name": "Cancel Booking",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Filter Incoming Messages Only", "type": "main", "index": 0}]]
+    },
+    "Filter Incoming Messages Only": {
+      "main": [
+        [{"node": "Extract Customer Data", "type": "main", "index": 0}],
+        [{"node": "No Response", "type": "main", "index": 0}]
+      ]
+    },
+    "Extract Customer Data": {
+      "main": [[{"node": "Get Existing Booking", "type": "main", "index": 0}]]
+    },
+    "Get Existing Booking": {
+      "main": [[{"node": "Merge Data & Set Context", "type": "main", "index": 0}]]
+    },
+    "Merge Data & Set Context": {
+      "main": [[{"node": "AI Receptionist Agent", "type": "main", "index": 0}]]
+    },
+    "AI Receptionist Agent": {
+      "main": [[{"node": "Parse AI Response", "type": "main", "index": 0}]]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [[{"node": "AI Receptionist Agent", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [[{"node": "AI Receptionist Agent", "type": "ai_memory", "index": 0}]]
+    },
+    "Parse AI Response": {
+      "main": [[{"node": "Is Modified?", "type": "main", "index": 0}]]
+    },
+    "Has JSON?": {
+      "main": [
+        [{"node": "Route: Action Type", "type": "main", "index": 0}],
+        [{"node": "Prepare Message", "type": "main", "index": 0}]
+      ]
+    },
+    "Route: Action Type": {
+      "main": [
+        [{"node": "Save New Booking", "type": "main", "index": 0}],
+        [{"node": "Prepare Message", "type": "main", "index": 0}]
+      ]
+    },
+    "Save New Booking": {
+      "main": [[{"node": "Prepare Message", "type": "main", "index": 0}]]
+    },
+    "Is Modified?": {
+      "main": [
+        [{"node": "Update Booking", "type": "main", "index": 0}],
+        [{"node": "Is Cancelled?", "type": "main", "index": 0}]
+      ]
+    },
+    "Update Booking": {
+      "main": [[{"node": "Prepare Message", "type": "main", "index": 0}]]
+    },
+    "Is Cancelled?": {
+      "main": [
+        [{"node": "Cancel Booking", "type": "main", "index": 0}],
+        [{"node": "Is Special Request?", "type": "main", "index": 0}]
+      ]
+    },
+    "Is Special Request?": {
+      "main": [
+        [{"node": "Update Special Requests", "type": "main", "index": 0}],
+        [{"node": "Has JSON?", "type": "main", "index": 0}]
+      ]
+    },
+    "Update Special Requests": {
+      "main": [[{"node": "Prepare Message", "type": "main", "index": 0}]]
+    },
+    "Prepare Message": {
+      "main": [[{"node": "Send WhatsApp Message", "type": "main", "index": 0}]]
+    },
+    "Error Trigger": {
+      "main": [[{"node": "Send Error Fallback", "type": "main", "index": 0}]]
+    },
+    "Cancel Booking": {
+      "main": [[{"node": "Prepare Message", "type": "main", "index": 0}]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
